@@ -1,0 +1,160 @@
+/* CrashOverlay.css — Full-screen emergency alarm UI */
+
+/* ── Base overlay ─────────────────────────────────────────────────── */
+.crash-overlay {
+  position: fixed;
+  inset: 0;
+  background: #0a0a0a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  font-family: 'Inter', sans-serif;
+  overflow: hidden;
+}
+
+/* ── Strobe flash layer ───────────────────────────────────────────── */
+.crash-strobe {
+  position: absolute;
+  inset: 0;
+  background: #ef4444;
+  animation: strobe 0.6s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes strobe {
+  0%   { opacity: 0.85; }
+  100% { opacity: 0.45; }
+}
+
+/* ── Content card ─────────────────────────────────────────────────── */
+.crash-content {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  border-radius: 20px;
+  padding: 36px 40px;
+  text-align: center;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 0 60px rgba(239, 68, 68, 0.8), 0 25px 50px rgba(0,0,0,0.4);
+  animation: cardPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes cardPop {
+  from { transform: scale(0.7); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* ── Icon ─────────────────────────────────────────────────────────── */
+.crash-icon {
+  font-size: 56px;
+  animation: iconPulse 0.8s ease-in-out infinite alternate;
+  margin-bottom: 8px;
+}
+
+@keyframes iconPulse {
+  from { transform: scale(1);    }
+  to   { transform: scale(1.15); }
+}
+
+/* ── Text ─────────────────────────────────────────────────────────── */
+.crash-title {
+  color: #dc2626;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  margin: 0 0 6px;
+}
+
+.crash-sub {
+  color: #6b7280;
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+/* ── Countdown ────────────────────────────────────────────────────── */
+.crash-countdown {
+  font-size: 52px;
+  font-weight: 900;
+  color: #1f2937;
+  line-height: 1;
+  margin-bottom: 16px;
+  transition: color 0.3s;
+}
+
+.crash-countdown.urgent {
+  color: #dc2626;
+  animation: countPulse 0.4s ease-in-out infinite alternate;
+}
+
+@keyframes countPulse {
+  from { transform: scale(1);    }
+  to   { transform: scale(1.08); }
+}
+
+/* ── Location ─────────────────────────────────────────────────────── */
+.crash-location {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: #f3f4f6;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 18px;
+}
+
+.location-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.location-coords {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  font-family: monospace;
+}
+
+/* ── Action buttons ───────────────────────────────────────────────── */
+.crash-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.crash-btn {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+  transition: transform 0.15s, filter 0.15s;
+}
+
+.crash-btn:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.08);
+}
+
+.crash-btn:active {
+  transform: translateY(0);
+}
+
+.maps-btn      { background: #3b82f6; color: #fff; }
+.emergency-btn { background: #dc2626; color: #fff; animation: emergencyPulse 1s ease-in-out infinite alternate; }
+.ok-btn        { background: #10b981; color: #fff; }
+
+@keyframes emergencyPulse {
+  from { background: #dc2626; }
+  to   { background: #b91c1c; }
+}

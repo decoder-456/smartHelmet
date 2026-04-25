@@ -1,0 +1,13 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "vehicles": {
+      "$phone": {
+        ".read": true,
+        ".write": true
+      }
+    }
+  }
+}

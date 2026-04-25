@@ -1,0 +1,10 @@
+{
+  "name": "smart-helmet",
+  "version": "1.0.0",
+  "description": "SmartHelmet MERN System",
+  "scripts": {
+    "dev": "npm start --prefix backend",
+    "dev:driver": "npm run dev --prefix driver-app",
+    "dev:all": "npx concurrently \"npm run dev\" \"npm run dev:driver\""
+  }
+}

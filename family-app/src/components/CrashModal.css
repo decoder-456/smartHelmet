@@ -1,0 +1,212 @@
+/* CrashModal.css — Family App emergency alarm UI */
+
+.crash-modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  font-family: 'Inter', sans-serif;
+  overflow: hidden;
+  background: #0a0a0a;
+}
+
+/* ── Red strobe background ─────────────────────────────────────── */
+.crash-modal-strobe {
+  position: absolute;
+  inset: 0;
+  background: #dc2626;
+  animation: familyStrobe 0.5s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes familyStrobe {
+  0%   { opacity: 0.9; }
+  100% { opacity: 0.4; }
+}
+
+/* ── Modal card ────────────────────────────────────────────────── */
+.crash-modal {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  border-radius: 22px;
+  padding: 36px 40px;
+  text-align: center;
+  max-width: 440px;
+  width: 90%;
+  color: #111;
+  box-shadow: 0 0 80px rgba(220, 38, 38, 0.9), 0 25px 50px rgba(0,0,0,0.5);
+  animation: modalPop 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes modalPop {
+  from { transform: scale(0.65); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+/* ── Icon ──────────────────────────────────────────────────────── */
+.crash-modal-icon {
+  font-size: 60px;
+  animation: iconBounce 0.7s ease-in-out infinite alternate;
+}
+
+@keyframes iconBounce {
+  from { transform: scale(1) rotate(-3deg); }
+  to   { transform: scale(1.2) rotate(3deg); }
+}
+
+/* ── Text ──────────────────────────────────────────────────────── */
+.crash-modal h1 {
+  color: #dc2626;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  margin: 8px 0 4px;
+}
+
+.crash-modal-sub {
+  color: #6b7280;
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+
+/* ── Countdown ─────────────────────────────────────────────────── */
+.crash-modal-countdown {
+  font-size: 58px;
+  font-weight: 900;
+  color: #1f2937;
+  line-height: 1;
+  margin-bottom: 2px;
+  transition: color 0.3s;
+}
+
+.crash-modal-countdown.urgent {
+  color: #dc2626;
+  animation: countUrgent 0.35s ease-in-out infinite alternate;
+}
+
+@keyframes countUrgent {
+  from { transform: scale(1);    }
+  to   { transform: scale(1.1);  }
+}
+
+.crash-modal-countdown-label {
+  font-size: 12px;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0 0 16px;
+}
+
+/* ── Location ──────────────────────────────────────────────────── */
+.crash-modal-location {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 20px;
+}
+
+.loc-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #ef4444;
+  font-weight: 700;
+}
+
+.loc-coords {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  font-family: monospace;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────── */
+.crash-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cmodal-btn {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+  transition: transform 0.15s, filter 0.15s;
+  box-sizing: border-box;
+}
+
+.cmodal-btn:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.08);
+}
+
+.maps-btn      { background: #2563eb; color: #fff; }
+.emergency-btn {
+  background: #dc2626;
+  color: #fff;
+  animation: callPulse 0.9s ease-in-out infinite alternate;
+}
+.mute-btn {
+  background: #4b5563;
+  color: #fff;
+}
+.mute-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+}
+
+@keyframes callPulse {
+  from { background: #dc2626; box-shadow: 0 0 0 0 rgba(220,38,38,0.4); }
+  to   { background: #b91c1c; box-shadow: 0 0 0 8px rgba(220,38,38,0); }
+}
+
+/* ── Waiting for driver indicator ──────────────────────────────── */
+.crash-modal-waiting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 18px;
+  padding: 10px 14px;
+  background: #f3f4f6;
+  border-radius: 10px;
+}
+
+.waiting-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6b7280;
+  animation: dotBounce 1.2s ease-in-out infinite;
+}
+.waiting-dot:nth-child(2) { animation-delay: 0.2s; }
+.waiting-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dotBounce {
+  0%, 80%, 100% { transform: translateY(0);   opacity: 0.4; }
+  40%            { transform: translateY(-7px); opacity: 1;   }
+}
+
+.waiting-text {
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}

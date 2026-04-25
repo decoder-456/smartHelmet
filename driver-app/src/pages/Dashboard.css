@@ -1,0 +1,218 @@
+/* Dashboard.css */
+.dashboard-container {
+  padding: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+  font-family: 'Inter', sans-serif;
+  background-color: #f3f4f6;
+  min-height: 100vh;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.dashboard-header h2 {
+  margin: 0;
+  color: #1f2937;
+}
+
+.btn-logout {
+  padding: 8px 16px;
+  background-color: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.btn-simulator {
+  padding: 8px 16px;
+  background-color: #6366f1;
+  color: white;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+.btn-simulator:hover { background-color: #4f46e5; }
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 600px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+}
+
+.status-card {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.status-ring-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.status-ring {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  border: 8px solid #ccc;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: border-color 0.5s ease;
+}
+
+.status-text {
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.control-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.control-buttons button {
+  padding: 14px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 16px;
+  cursor: pointer;
+  color: white;
+  transition: opacity 0.2s;
+}
+
+.btn-lock { background-color: #ef4444; }
+.btn-unlock { background-color: #10b981; }
+.control-buttons button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.helmet-status {
+  font-size: 18px;
+  font-weight: bold;
+  margin-bottom: 12px;
+}
+
+.helmet-on { color: #10b981; }
+.helmet-off { color: #ef4444; }
+
+.map-wrapper {
+  margin-top: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.no-gps {
+  padding: 40px;
+  text-align: center;
+  background: #f9fafb;
+  color: #6b7280;
+}
+
+.ride-controls {
+  text-align: center;
+}
+
+.ride-controls h3 {
+  margin-top: 0;
+  color: #374151;
+}
+
+.ride-controls button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-weight: bold;
+  font-size: 16px;
+  cursor: pointer;
+  color: white;
+}
+
+.btn-start-ride { background-color: #3b82f6; }
+.btn-end-ride { background-color: #f59e0b; }
+
+/* Crash Overlay */
+.crash-overlay {
+  position: fixed;
+  top: 0; left: 0; width: 100vw; height: 100vh;
+  background-color: rgba(239, 68, 68, 0.95);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: pulseBg 1s infinite alternate;
+}
+
+@keyframes pulseBg {
+  0% { background-color: rgba(239, 68, 68, 0.95); }
+  100% { background-color: rgba(220, 38, 38, 0.95); }
+}
+
+.crash-content {
+  background: white;
+  padding: 40px;
+  border-radius: 16px;
+  text-align: center;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.crash-content h1 {
+  color: #ef4444;
+  margin-top: 0;
+  font-size: 32px;
+}
+
+.btn-maps {
+  display: inline-block;
+  background-color: #3b82f6;
+  color: white;
+  text-decoration: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: bold;
+  margin: 10px 0;
+}
+
+.btn-acknowledge {
+  display: block;
+  width: 100%;
+  margin-top: 20px;
+  padding: 14px;
+  background-color: #10b981;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: bold;
+  font-size: 16px;
+  cursor: pointer;
+}
