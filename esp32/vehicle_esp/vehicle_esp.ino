@@ -33,7 +33,7 @@ struct_message helmetData;
 // ───────────────── STATE ─────────────────
 bool engineLocked = false;
 bool engineLockedDown = false;
-bool crashAcknowledged = false; // Prevents immediate re-trigger from latched helmet signal
+bool crashAcknowledged = false;
 
 unsigned long lastFirebasePush = 0;
 unsigned long lastCommandPoll = 0;
@@ -41,6 +41,8 @@ unsigned long lastCheck = 0;
 
 // ───────────────── FIREBASE ─────────────────
 String firebaseBaseUrl = String("https://") + FIREBASE_HOST + "/vehicles/" + DRIVER_PHONE;
+WiFiClientSecure client;
+HTTPClient http;
 
 // ───────────────── GPS + SIM ─────────────────
 TinyGPSPlus gps;
@@ -61,8 +63,6 @@ void triggerEmergencyProtocol() {
     smsText += "Location unavailable";
   }
 
-  Serial.println("[SIM800] Sending SMS...");
-
   simSerial.println("AT+CMGF=1");
   delay(300);
   simSerial.print("AT+CMGS=\""); 
@@ -72,31 +72,22 @@ void triggerEmergencyProtocol() {
   simSerial.print(smsText);
   delay(300);
   simSerial.write(26);
-
-  Serial.println("[SIM800] SMS Sent!");
 }
 
 // ───────────────── ESP-NOW RECEIVE ─────────────────
 void OnDataRecv(const esp_now_recv_info *info, const uint8_t *incomingData, int len) {
   memcpy(&helmetData, incomingData, sizeof(helmetData));
 
-  // Only trigger if crash is detected AND we haven't already acknowledged this crash session
   if (helmetData.crashDetected && !engineLockedDown && !crashAcknowledged) {
     engineLockedDown = true;
-    Serial.println("\n🚨 CRASH DETECTED!");
-
     triggerEmergencyProtocol();
-
-    // Instant Firebase update
-    bool keyIn = (digitalRead(keyPin) == LOW);
-    pushToFirebase(keyIn);
+    pushToFirebase(digitalRead(keyPin) == LOW);
   }
 }
 
 // ───────────────── FIREBASE PUSH ─────────────────
 void pushToFirebase(bool keyIn) {
   String status;
-
   if (engineLockedDown) status = "CRASH";
   else if (engineLocked) status = "LOCKED";
   else if (keyIn && helmetData.helmetOn) status = "DRIVING";
@@ -108,97 +99,56 @@ void pushToFirebase(bool keyIn) {
   json += "\"crashActive\":" + String(engineLockedDown ? "true" : "false") + ",";
   json += "\"keyIn\":" + String(keyIn ? "true" : "false") + ",";
   json += "\"timestamp\":" + String(millis());
-
   if (gps.location.isValid()) {
     json += ",\"lat\":" + String(gps.location.lat(), 6);
     json += ",\"lng\":" + String(gps.location.lng(), 6);
   }
   json += "}";
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-
   http.begin(client, firebaseBaseUrl + ".json");
   http.addHeader("Content-Type", "application/json");
-  int code = http.PATCH(json);
-
-  if (code > 0) {
-    Serial.printf("[Firebase] Updated: %s\n", status.c_str());
-  } else {
-    Serial.println("[Firebase] Error!");
-  }
-
+  http.PATCH(json);
   http.end();
 }
 
-// ───────────────── COMMAND POLL ─────────────────
+// ───────────────── COMMAND POLL (OPTIMIZED) ─────────────────
 void pollFirebaseCommands() {
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-
-  // ── Remote Lock/Unlock ──
-  String url = firebaseBaseUrl + "/pendingCommand.json";
-  http.begin(client, url);
+  http.begin(client, firebaseBaseUrl + ".json");
   int code = http.GET();
 
   if (code == 200) {
     String payload = http.getString();
-    payload.replace("\"", "");
-    payload.trim();
-
-    if (payload == "lock") {
+    
+    // Handle Lock/Unlock
+    if (payload.indexOf("\"pendingCommand\":\"lock\"") >= 0) {
       engineLocked = true;
-      Serial.println("🔒 LOCKED");
-      
-      http.end();
-      http.begin(client, url);
-      http.addHeader("Content-Type", "application/json");
-      http.PUT("null");
-      http.end();
-
-      bool keyIn = (digitalRead(keyPin) == LOW);
-      pushToFirebase(keyIn);
-    } 
-    else if (payload == "unlock") {
+      clearCommand();
+    } else if (payload.indexOf("\"pendingCommand\":\"unlock\"") >= 0) {
       engineLocked = false;
-      Serial.println("🔓 UNLOCKED");
+      clearCommand();
+    }
 
-      http.end();
-      http.begin(client, url);
-      http.addHeader("Content-Type", "application/json");
-      http.PUT("null");
-      http.end();
-
-      bool keyIn = (digitalRead(keyPin) == LOW);
-      pushToFirebase(keyIn);
+    // Handle Crash Acknowledgment
+    if (engineLockedDown && payload.indexOf("\"crashActive\":false") >= 0) {
+      engineLockedDown = false;
+      crashAcknowledged = true;
+      pushToFirebase(digitalRead(keyPin) == LOW);
     }
   }
   http.end();
+}
 
-  // ── Crash Acknowledgement ──
-  if (engineLockedDown) {
-    String crashUrl = firebaseBaseUrl + "/crashActive.json";
-    http.begin(client, crashUrl);
-    int crashCode = http.GET();
-    if (crashCode == 200) {
-      String crashPayload = http.getString();
-      crashPayload.trim();
-      if (crashPayload == "false") {
-        engineLockedDown = false;
-        crashAcknowledged = true; // Block re-trigger until helmet is reset
-        Serial.println("[Crash] ✅ Acknowledged. Resuming...");
-      }
-    }
-    http.end();
-  }
+void clearCommand() {
+  http.begin(client, firebaseBaseUrl + "/pendingCommand.json");
+  http.addHeader("Content-Type", "application/json");
+  http.PUT("null");
+  http.end();
+  pushToFirebase(digitalRead(keyPin) == LOW);
 }
 
 // ───────────────── SETUP ─────────────────
 void setup() {
   Serial.begin(115200);
-
   pinMode(keyPin, INPUT_PULLUP);
   pinMode(motorIn1, OUTPUT);
   pinMode(motorIn2, OUTPUT);
@@ -208,52 +158,37 @@ void setup() {
 
   WiFi.mode(WIFI_AP_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) delay(300);
 
-  Serial.print("Connecting WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(300);
-    Serial.print(".");
-  }
+  client.setInsecure();
+  http.setReuse(true); // Optimized for speed
 
-  Serial.println("\nConnected!");
-
-  if (esp_now_init() == ESP_OK) {
-    esp_now_register_recv_cb(OnDataRecv);
-    Serial.println("[ESP-NOW] Ready");
-  } else {
-    Serial.println("[ESP-NOW] Failed!");
-  }
+  if (esp_now_init() == ESP_OK) esp_now_register_recv_cb(OnDataRecv);
 }
 
 // ───────────────── LOOP ─────────────────
 void loop() {
   while (gpsSerial.available()) gps.encode(gpsSerial.read());
-
   unsigned long now = millis();
 
-  // Fast engine control
+  // Engine control (50ms)
   if (now - lastCheck >= 50) {
     lastCheck = now;
-
     bool keyIn = (digitalRead(keyPin) == LOW);
     bool run = keyIn && !engineLocked && helmetData.helmetOn && !engineLockedDown;
-
     digitalWrite(motorIn1, run);
     digitalWrite(motorIn2, LOW);
   }
 
-  // Fast Firebase update
-  if (now - lastFirebasePush >= 500) {
+  // Firebase update (1s)
+  if (now - lastFirebasePush >= 1000) {
     lastFirebasePush = now;
-    bool keyIn = (digitalRead(keyPin) == LOW);
-    pushToFirebase(keyIn);
+    pushToFirebase(digitalRead(keyPin) == LOW);
   }
 
-  // Fast command response
+  // Poll commands (200ms)
   if (now - lastCommandPoll >= 200) {
     lastCommandPoll = now;
-    if (WiFi.status() == WL_CONNECTED) {
-      pollFirebaseCommands();
-    }
+    if (WiFi.status() == WL_CONNECTED) pollFirebaseCommands();
   }
 }
