@@ -12,6 +12,7 @@ export const SocketProvider = ({ children }) => {
   const { user } = useContext(AuthContext);
   const [vehicleState, setVehicleState] = useState(null);
   const [crashAlert, setCrashAlert] = useState(null);
+  const [lastAckId, setLastAckId] = useState(null);
 
   useEffect(() => {
     if (!user) return;
@@ -42,14 +43,22 @@ export const SocketProvider = ({ children }) => {
 
       // Trigger crash overlay when ESP32 sends CRASH + crashActive flag
       if (data.status === 'CRASH' && data.crashActive === true) {
-        setCrashAlert({
-          alertId: `${targetPhone}_${Date.now()}`,
-          lat: data.lat,
-          lng: data.lng,
-          mapsUrl: `https://www.google.com/maps?q=${data.lat},${data.lng}`,
-          timestamp: data.timestamp,
-          vehiclePath: `vehicles/${targetPhone}`,
-        });
+        const currentAlertId = `${targetPhone}_${data.timestamp}`;
+        
+        // Only trigger if this is a NEW crash alert we haven't acknowledged
+        if (currentAlertId !== lastAckId) {
+          setCrashAlert({
+            alertId: currentAlertId,
+            lat: data.lat,
+            lng: data.lng,
+            mapsUrl: `https://www.google.com/maps?q=${data.lat},${data.lng}`,
+            timestamp: data.timestamp,
+            vehiclePath: `vehicles/${targetPhone}`,
+          });
+        }
+      } else if (data.crashActive === false) {
+        // Clear locally if cleared in Firebase (e.g. by family member)
+        setCrashAlert(null);
       }
     });
 
@@ -66,6 +75,7 @@ export const SocketProvider = ({ children }) => {
   // Acknowledge crash — clears the crash flag on Firebase
   const acknowledgeCrash = () => {
     if (crashAlert?.vehiclePath) {
+      setLastAckId(crashAlert.alertId);
       update(ref(db, crashAlert.vehiclePath), {
         crashActive: false,
         status: 'LOCKED',

@@ -65,6 +65,7 @@ struct_message helmetData;
 // ── State Flags ───────────────────────────────────────────────────────────────
 bool engineLocked    = false;   // Set by Firebase pendingCommand (app remote lock)
 bool engineLockedDown = false;  // Set by crash — hard lock until acknowledged
+bool crashAcknowledged = false; // Prevents immediate re-trigger from latched helmet signal
 
 unsigned long lastFirebasePush    = 0;
 unsigned long lastCommandPoll     = 0;
@@ -116,7 +117,7 @@ void triggerEmergencyProtocol() {
 void OnDataRecv(const esp_now_recv_info *info, const uint8_t *incomingData, int len) {
   memcpy(&helmetData, incomingData, sizeof(helmetData));
 
-  if (helmetData.crashDetected && !engineLockedDown) {
+  if (helmetData.crashDetected && !engineLockedDown && !crashAcknowledged) {
     engineLockedDown = true;
     Serial.println("\n!!! WIRELESS CRASH ALERT RECEIVED FROM HELMET !!!");
     triggerEmergencyProtocol();   // SMS + engine kill (your original)
@@ -198,7 +199,7 @@ void pollFirebaseCommands() {
     if (Firebase.getBool(fbData, crashPath)) {
       if (!fbData.boolData()) {
         engineLockedDown = false;
-        helmetData.crashDetected = false;
+        crashAcknowledged = true; // Block re-trigger until helmet is reset
         Serial.println("[Crash] ✅ Acknowledged by app. Resuming normal mode.");
       }
     }
