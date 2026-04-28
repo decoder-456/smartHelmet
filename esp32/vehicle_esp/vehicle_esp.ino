@@ -4,6 +4,12 @@
 #include <WiFiClientSecure.h>
 #include <TinyGPSPlus.h>
 
+// ── Function Prototypes (Fixes 'not declared in this scope' error) ──
+void pushToFirebase(bool keyIn, bool force = false);
+void clearCommand();
+void pollFirebaseCommands();
+void handleCrash();
+
 // ───────────────── CONFIG ─────────────────
 #define WIFI_SSID       "Redmi 13C 5G"
 #define WIFI_PASSWORD   "123456789"
