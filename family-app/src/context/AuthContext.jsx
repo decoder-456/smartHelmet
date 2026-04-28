@@ -3,7 +3,7 @@ import axios from 'axios';
 
 export const AuthContext = createContext(null);
 
-const API = 'http://localhost:5000/api/auth';
+const API = (import.meta.env.VITE_API_URL || 'http://localhost:5000') + '/api/auth';
 
 // Attach JWT to every axios request automatically
 axios.interceptors.request.use((config) => {
