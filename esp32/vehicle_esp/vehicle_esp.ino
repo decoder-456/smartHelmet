@@ -14,7 +14,6 @@
 const int keyPin    = 4;
 const int motorIn1  = 26;
 const int motorIn2  = 27;
-
 #define GPS_RX 16
 #define GPS_TX 17
 
@@ -31,6 +30,11 @@ bool engineLocked = false;
 bool engineLockedDown = false;
 bool crashAcknowledged = false;
 
+// Status Cache for Smart Pushing
+String lastStatus = "";
+bool lastHelmet = false;
+bool lastKey = false;
+
 unsigned long lastFirebasePush = 0;
 unsigned long lastCommandPoll = 0;
 unsigned long lastCheck = 0;
@@ -46,10 +50,9 @@ HardwareSerial gpsSerial(2);
 
 // ───────────────── EMERGENCY ─────────────────
 void handleCrash() {
-  // Kill engine immediately
   digitalWrite(motorIn1, LOW);
   digitalWrite(motorIn2, LOW);
-  Serial.println("🚨 EMERGENCY: Engine Killed due to Crash.");
+  Serial.println("🚨 EMERGENCY ENGINE KILL");
 }
 
 // ───────────────── ESP-NOW RECEIVE ─────────────────
@@ -58,19 +61,26 @@ void OnDataRecv(const esp_now_recv_info *info, const uint8_t *incomingData, int 
 
   if (helmetData.crashDetected && !engineLockedDown && !crashAcknowledged) {
     engineLockedDown = true;
-    Serial.println("\n🚨 CRASH DETECTED!");
     handleCrash();
-    pushToFirebase(digitalRead(keyPin) == LOW);
+    pushToFirebase(digitalRead(keyPin) == LOW, true); // Force push on crash
   }
 }
 
-// ───────────────── FIREBASE PUSH ─────────────────
-void pushToFirebase(bool keyIn) {
+// ───────────────── FIREBASE PUSH (SMART) ─────────────────
+void pushToFirebase(bool keyIn, bool force = false) {
   String status;
   if (engineLockedDown) status = "CRASH";
   else if (engineLocked) status = "LOCKED";
   else if (keyIn && helmetData.helmetOn) status = "DRIVING";
   else status = "IDLE";
+
+  // Only push if data changed or forced (e.g. heartbeat every 5s)
+  if (!force && status == lastStatus && keyIn == lastKey && helmetData.helmetOn == lastHelmet) {
+    if (millis() - lastFirebasePush < 5000) return; 
+  }
+
+  lastStatus = status; lastKey = keyIn; lastHelmet = helmetData.helmetOn;
+  lastFirebasePush = millis();
 
   String json = "{";
   json += "\"status\":\"" + status + "\",";
@@ -90,7 +100,7 @@ void pushToFirebase(bool keyIn) {
   http.end();
 }
 
-// ───────────────── COMMAND POLL ─────────────────
+// ───────────────── COMMAND POLL (FAST 10Hz) ─────────────────
 void pollFirebaseCommands() {
   http.begin(client, firebaseBaseUrl + ".json");
   int code = http.GET();
@@ -98,23 +108,23 @@ void pollFirebaseCommands() {
   if (code == 200) {
     String payload = http.getString();
     
-    // Lock/Unlock
+    // Check Commands
     if (payload.indexOf("\"pendingCommand\":\"lock\"") >= 0) {
       engineLocked = true;
-      Serial.println("🔒 REMOTE LOCK");
+      Serial.println("🔒 LOCKED");
       clearCommand();
     } else if (payload.indexOf("\"pendingCommand\":\"unlock\"") >= 0) {
       engineLocked = false;
-      Serial.println("🔓 REMOTE UNLOCK");
+      Serial.println("🔓 UNLOCKED");
       clearCommand();
     }
 
-    // Crash Acknowledgment
+    // Check Crash Ack
     if (engineLockedDown && payload.indexOf("\"crashActive\":false") >= 0) {
       engineLockedDown = false;
       crashAcknowledged = true;
-      Serial.println("[Crash] ✅ Acknowledged.");
-      pushToFirebase(digitalRead(keyPin) == LOW);
+      Serial.println("✅ CRASH CLEARED");
+      pushToFirebase(digitalRead(keyPin) == LOW, true);
     }
   }
   http.end();
@@ -125,7 +135,7 @@ void clearCommand() {
   http.addHeader("Content-Type", "application/json");
   http.PUT("null");
   http.end();
-  pushToFirebase(digitalRead(keyPin) == LOW);
+  pushToFirebase(digitalRead(keyPin) == LOW, true);
 }
 
 // ───────────────── SETUP ─────────────────
@@ -139,12 +149,13 @@ void setup() {
 
   WiFi.mode(WIFI_AP_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) delay(300);
+  while (WiFi.status() != WL_CONNECTED) delay(200);
 
   client.setInsecure();
-  http.setReuse(true);
+  http.setReuse(true); // Persist connection
 
   if (esp_now_init() == ESP_OK) esp_now_register_recv_cb(OnDataRecv);
+  Serial.println("🚀 High-Speed Mode Active");
 }
 
 // ───────────────── LOOP ─────────────────
@@ -152,6 +163,7 @@ void loop() {
   while (gpsSerial.available()) gps.encode(gpsSerial.read());
   unsigned long now = millis();
 
+  // Engine Control (50ms)
   if (now - lastCheck >= 50) {
     lastCheck = now;
     bool keyIn = (digitalRead(keyPin) == LOW);
@@ -160,12 +172,11 @@ void loop() {
     digitalWrite(motorIn2, LOW);
   }
 
-  if (now - lastFirebasePush >= 1000) {
-    lastFirebasePush = now;
-    pushToFirebase(digitalRead(keyPin) == LOW);
-  }
+  // Smart Push (Dynamic)
+  pushToFirebase(digitalRead(keyPin) == LOW);
 
-  if (now - lastCommandPoll >= 200) {
+  // Command Poll (100ms)
+  if (now - lastCommandPoll >= 100) {
     lastCommandPoll = now;
     if (WiFi.status() == WL_CONNECTED) pollFirebaseCommands();
   }
