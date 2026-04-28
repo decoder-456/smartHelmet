@@ -10,12 +10,7 @@ const app = express();
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(
   cors({
-    origin: [
-      'http://localhost:5173', // driver-app (default Vite port)
-      'http://localhost:5174', // family-app (second Vite instance)
-      'http://localhost:5175', // in case of third Vite instance
-      'http://localhost:3000',
-    ],
+    origin: true,
     credentials: true,
   })
 );
