@@ -1,23 +1,3 @@
-/**
- * ╔══════════════════════════════════════════════════════════════════╗
- * ║   SMART HELMET — ESP32 #1 : HELMET UNIT  (ESP-NOW Sender)      ║
- * ╠══════════════════════════════════════════════════════════════════╣
- * ║  Original code preserved — only library + channel updated       ║
- * ║                                                                  ║
- * ║  Hardware:                                                       ║
- * ║    IR Sensor    → GPIO 13  (LOW = helmet on head)               ║
- * ║    MPU-6050     → SDA=21, SCL=22  (Adafruit library)           ║
- * ║                                                                  ║
- * ║  Communication:                                                  ║
- * ║    ESP-NOW → sends {helmetOn, crashDetected} to Vehicle ESP     ║
- * ║    (No WiFi router connection needed on this unit)               ║
- * ║                                                                  ║
- * ║  Libraries required:                                             ║
- * ║    • Adafruit MPU6050    (search "Adafruit MPU6050")            ║
- * ║    • Adafruit Unified Sensor (dependency, auto-installed)        ║
- * ╚══════════════════════════════════════════════════════════════════╝
- */
-
 #include <esp_now.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -25,25 +5,19 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 
-// ── Pin ───────────────────────────────────────────────────────────────────────
+// ───── PIN ─────
 const int irPin = 13;
 
-// ── Crash Threshold ───────────────────────────────────────────────────────────
-// Total acceleration magnitude (m/s²). Gravity alone = ~9.8 m/s².
-// 20 m/s² ≈ 2g — increase if getting false positives while riding.
-#define CRASH_ACCEL_THRESHOLD  20.0f
+// ───── CRASH THRESHOLD ─────
+#define CRASH_ACCEL_THRESHOLD 20.0f
 
-// ── ESP-NOW Channel ───────────────────────────────────────────────────────────
-// ⚠️  IMPORTANT: This MUST match the channel your home WiFi router uses.
-// Common values: 1, 6, or 11. Check your router admin page if unsure.
-// The Vehicle ESP will print its channel to Serial on boot.
-#define ESPNOW_WIFI_CHANNEL  1
+// ⚠️ MUST MATCH VEHICLE CHANNEL
+#define ESPNOW_WIFI_CHANNEL 13
 
-// ── Vehicle ESP MAC Address ───────────────────────────────────────────────────
-// ⚠️  Replace with YOUR Vehicle ESP32 MAC (printed on Serial at boot)
+// ⚠️ MUST MATCH VEHICLE MAC
 uint8_t vehicleAddress[] = {0xC8, 0x2E, 0x18, 0xF7, 0x48, 0xB4};
 
-// ── Data Packet (must match struct in vehicle_esp.ino) ────────────────────────
+// ───── DATA STRUCT ─────
 typedef struct struct_message {
   bool helmetOn;
   bool crashDetected;
@@ -55,88 +29,102 @@ Adafruit_MPU6050 mpu;
 
 bool crashReported = false;
 
-// ── Optional: send callback for debugging ─────────────────────────────────────
+// ───── DEBUG SEND STATUS ─────
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  // Uncomment for debugging:
-  // Serial.printf("[ESP-NOW] Send: %s\n", status == ESP_NOW_SEND_SUCCESS ? "OK" : "FAIL");
+  Serial.printf("[ESP-NOW] Send: %s\n",
+    status == ESP_NOW_SEND_SUCCESS ? "OK" : "FAIL");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────── SETUP ─────────────────
 void setup() {
   Serial.begin(115200);
   delay(500);
-  Serial.println("\n=== Helmet Unit Starting ===");
+
+  Serial.println("\n=== HELMET UNIT STARTING ===");
 
   pinMode(irPin, INPUT);
 
-  // MPU-6050
+  // MPU6050 init
   Wire.begin();
   if (!mpu.begin()) {
-    Serial.println("[MPU6050] NOT FOUND — check wiring! (SDA=21, SCL=22)");
-    while (1) delay(100);
+    Serial.println("[MPU6050] NOT FOUND!");
+    while (1);
   }
+
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
-  Serial.println("[MPU6050] Ready.");
 
-  // ESP-NOW setup — STA mode, no router connection needed
+  Serial.println("[MPU6050] Ready");
+
+  // WiFi STA mode
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
 
-  // Lock to the specific channel so ESP-NOW reaches Vehicle ESP
+  // Lock channel
   esp_wifi_set_channel(ESPNOW_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
-  Serial.printf("[WiFi] ESP-NOW channel locked to: %d\n", ESPNOW_WIFI_CHANNEL);
-  Serial.printf("[WiFi] This unit MAC: %s\n", WiFi.macAddress().c_str());
 
+  // 🔥 DEBUG INFO (LIKE VEHICLE)
+  Serial.println("===== HELMET INFO =====");
+  Serial.printf("MAC: %s\n", WiFi.macAddress().c_str());
+  Serial.printf("CHANNEL: %d\n", ESPNOW_WIFI_CHANNEL);
+  Serial.println("========================");
+
+  // ESP-NOW init
   if (esp_now_init() != ESP_OK) {
     Serial.println("[ESP-NOW] Init FAILED!");
-    while (1) delay(100);
+    while (1);
   }
 
   esp_now_register_send_cb(OnDataSent);
 
+  // Add vehicle peer
   memcpy(peerInfo.peer_addr, vehicleAddress, 6);
   peerInfo.channel = ESPNOW_WIFI_CHANNEL;
   peerInfo.encrypt = false;
 
   if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    Serial.println("[ESP-NOW] Failed to add Vehicle peer.");
+    Serial.println("[ESP-NOW] Peer add FAILED!");
   } else {
-    Serial.println("[ESP-NOW] Vehicle peer registered.");
+    Serial.println("[ESP-NOW] Vehicle connected");
   }
 
-  Serial.println("=== Helmet Unit Ready. Sending every 100ms. ===\n");
+  Serial.println("=== Helmet Ready (50ms send rate) ===\n");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────── LOOP ─────────────────
 void loop() {
-  // ── 1. Helmet Detection (IR Sensor) ──
+
+  // Helmet detection
   myData.helmetOn = (digitalRead(irPin) == LOW);
 
-  // ── 2. Crash Detection (MPU-6050) ──
+  // MPU reading
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
 
-  // Total acceleration magnitude (includes gravity ~9.8 m/s²)
   float accelMag = sqrt(
-    pow(a.acceleration.x, 2) +
-    pow(a.acceleration.y, 2) +
-    pow(a.acceleration.z, 2)
+    a.acceleration.x * a.acceleration.x +
+    a.acceleration.y * a.acceleration.y +
+    a.acceleration.z * a.acceleration.z
   );
 
+  // Crash detection
   if (accelMag > CRASH_ACCEL_THRESHOLD && !crashReported) {
     myData.crashDetected = true;
     crashReported = true;
-    Serial.printf("[CRASH] Impact detected! Accel=%.2f m/s²\n", accelMag);
+
+    Serial.printf("🚨 CRASH DETECTED! Accel=%.2f\n", accelMag);
   } else if (!crashReported) {
     myData.crashDetected = false;
   }
-  // Note: crashReported latches to true until reset (power cycle)
-  // The vehicle ESP will notify the cloud; family app acknowledges it
 
-  // ── 3. Send via ESP-NOW ──
+  // Debug helmet status
+  Serial.printf("Helmet: %s | Crash: %d\n",
+    myData.helmetOn ? "ON" : "OFF",
+    myData.crashDetected);
+
+  // Send data
   esp_now_send(vehicleAddress, (uint8_t *)&myData, sizeof(myData));
 
-  delay(100);   // Send 10 times per second
+  delay(50);  // ⚡ faster (20Hz)
 }

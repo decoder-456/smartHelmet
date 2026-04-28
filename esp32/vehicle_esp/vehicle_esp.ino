@@ -1,310 +1,256 @@
-/**
- * ╔══════════════════════════════════════════════════════════════════╗
- * ║   SMART HELMET — ESP32 #2 : VEHICLE UNIT  (Firebase + ESP-NOW) ║
- * ╠══════════════════════════════════════════════════════════════════╣
- * ║  Migrated from local WebServer → Firebase Realtime Database      ║
- * ║  All original hardware logic preserved exactly.                  ║
- * ║                                                                  ║
- * ║  Hardware:                                                       ║
- * ║    Key Pin      → GPIO 4   (connect to GND = key in ignition)   ║
- * ║    Motor IN1    → GPIO 26  (forward = engine runs)              ║
- * ║    Motor IN2    → GPIO 27  (reverse / brake)                    ║
- * ║    GPS Module   → UART2   RX=16, TX=17                         ║
- * ║    SIM800L      → UART1   RX=32, TX=33  (SMS alerts)           ║
- * ║                                                                  ║
- * ║  Data Flow:                                                       ║
- * ║    Receives via ESP-NOW  ← Helmet ESP                           ║
- * ║    Writes to Firebase    → status, lat, lng, helmetOn, crash    ║
- * ║    Reads from Firebase   → pendingCommand (lock/unlock from app) ║
- * ║    Sends SMS via SIM800L → on crash (your existing logic kept)  ║
- * ║                                                                  ║
- * ║  Libraries required:                                             ║
- * ║    • Firebase ESP32 Client  by mobizt  (v4.x)                  ║
- * ║    • TinyGPS++              by Mikal Hart                       ║
- * ╚══════════════════════════════════════════════════════════════════╝
- */
-
 #include <esp_now.h>
 #include <WiFi.h>
-#include <FirebaseESP32.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <TinyGPSPlus.h>
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ⚙️  CONFIGURE THESE BEFORE FLASHING
-// ─────────────────────────────────────────────────────────────────────────────
-#define WIFI_SSID       "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD   "YOUR_WIFI_PASSWORD"
-
+// ───────────────── CONFIG ─────────────────
+#define WIFI_SSID       "Redmi 13C 5G"
+#define WIFI_PASSWORD   "123456789"
 #define FIREBASE_HOST   "smarthelmet-961f1-default-rtdb.firebaseio.com"
-#define FIREBASE_AUTH   "YOUR_FIREBASE_DATABASE_SECRET"
-// ☝️  Firebase Console → Project Settings → Service Accounts → Database secrets
+#define DRIVER_PHONE    "6200071174"
 
-#define DRIVER_PHONE    "6200071174"   // Digits only — must match driver app
-
-// Emergency SMS number (your original)
 String emergencyNumber = "+917992202784";
-// ─────────────────────────────────────────────────────────────────────────────
 
-// ── Pin Definitions (your original) ──────────────────────────────────────────
+// ───────────────── PINS ─────────────────
 const int keyPin    = 4;
 const int motorIn1  = 26;
 const int motorIn2  = 27;
 
-#define GPS_RX  16
-#define GPS_TX  17
-#define SIM_RX  32
-#define SIM_TX  33
+#define GPS_RX 16
+#define GPS_TX 17
+#define SIM_RX 32
+#define SIM_TX 33
 
-// ── Data Packet (must match struct in helmet_esp.ino) ────────────────────────
+// ───────────────── STRUCT ─────────────────
 typedef struct struct_message {
   bool helmetOn;
   bool crashDetected;
 } struct_message;
+
 struct_message helmetData;
 
-// ── State Flags ───────────────────────────────────────────────────────────────
-bool engineLocked    = false;   // Set by Firebase pendingCommand (app remote lock)
-bool engineLockedDown = false;  // Set by crash — hard lock until acknowledged
+// ───────────────── STATE ─────────────────
+bool engineLocked = false;
+bool engineLockedDown = false;
 bool crashAcknowledged = false; // Prevents immediate re-trigger from latched helmet signal
 
-unsigned long lastFirebasePush    = 0;
-unsigned long lastCommandPoll     = 0;
-unsigned long lastCheck           = 0;
+unsigned long lastFirebasePush = 0;
+unsigned long lastCommandPoll = 0;
+unsigned long lastCheck = 0;
 
-// ── Firebase ──────────────────────────────────────────────────────────────────
-FirebaseData   fbData;
-FirebaseConfig fbConfig;
-FirebaseAuth   fbAuth;
-String vehiclePath = String("vehicles/") + DRIVER_PHONE;
+// ───────────────── FIREBASE ─────────────────
+String firebaseBaseUrl = String("https://") + FIREBASE_HOST + "/vehicles/" + DRIVER_PHONE;
 
-// ── GPS + SIM ─────────────────────────────────────────────────────────────────
-TinyGPSPlus     gps;
-HardwareSerial  gpsSerial(2);
-HardwareSerial  simSerial(1);
+// ───────────────── GPS + SIM ─────────────────
+TinyGPSPlus gps;
+HardwareSerial gpsSerial(2);
+HardwareSerial simSerial(1);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SMS Emergency — your original function, unchanged
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────── SMS ─────────────────
 void triggerEmergencyProtocol() {
-  // Hard-kill engine immediately
   digitalWrite(motorIn1, LOW);
   digitalWrite(motorIn2, LOW);
 
   String smsText = "URGENT: Crash Detected! Location: ";
   if (gps.location.isValid()) {
-    smsText += "https://www.google.com/maps?q=" +
+    smsText += "https://maps.google.com/?q=" +
                String(gps.location.lat(), 6) + "," +
                String(gps.location.lng(), 6);
   } else {
-    // Fallback coordinates (NIT Jamshedpur — your original)
-    smsText += "https://www.google.com/maps?q=22.7766,86.1437";
+    smsText += "Location unavailable";
   }
 
-  Serial.println("[SIM800L] Sending emergency SMS...");
+  Serial.println("[SIM800] Sending SMS...");
+
   simSerial.println("AT+CMGF=1");
-  delay(500);
-  simSerial.print("AT+CMGS=\""); simSerial.print(emergencyNumber); simSerial.println("\"");
-  delay(500);
+  delay(300);
+  simSerial.print("AT+CMGS=\""); 
+  simSerial.print(emergencyNumber); 
+  simSerial.println("\"");
+  delay(300);
   simSerial.print(smsText);
-  delay(500);
-  simSerial.write(26);   // Ctrl+Z to send SMS
-  Serial.printf("[SIM800L] SMS sent to %s\n", emergencyNumber.c_str());
+  delay(300);
+  simSerial.write(26);
+
+  Serial.println("[SIM800] SMS Sent!");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ESP-NOW Receive Callback — your original logic
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────── ESP-NOW RECEIVE ─────────────────
 void OnDataRecv(const esp_now_recv_info *info, const uint8_t *incomingData, int len) {
   memcpy(&helmetData, incomingData, sizeof(helmetData));
 
+  // Only trigger if crash is detected AND we haven't already acknowledged this crash session
   if (helmetData.crashDetected && !engineLockedDown && !crashAcknowledged) {
     engineLockedDown = true;
-    Serial.println("\n!!! WIRELESS CRASH ALERT RECEIVED FROM HELMET !!!");
-    triggerEmergencyProtocol();   // SMS + engine kill (your original)
-    // Firebase push happens in main loop — will set status=CRASH, crashActive=true
+    Serial.println("\n🚨 CRASH DETECTED!");
+
+    triggerEmergencyProtocol();
+
+    // Instant Firebase update
+    bool keyIn = (digitalRead(keyPin) == LOW);
+    pushToFirebase(keyIn);
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Firebase: Push all sensor data to cloud
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────── FIREBASE PUSH ─────────────────
 void pushToFirebase(bool keyIn) {
-  // Determine status (replaces the old WebServer /status handler)
   String status;
-  if (engineLockedDown) {
-    status = "CRASH";
-  } else if (engineLocked) {
-    status = "LOCKED";
-  } else if (keyIn && helmetData.helmetOn) {
-    if (gps.speed.isValid() && gps.speed.kmph() > 3.0) {
-      status = "DRIVING";
-    } else {
-      status = "IDLE";
-    }
-  } else {
-    status = "IDLE";
-  }
 
-  FirebaseJson json;
-  json.set("status",      status);
-  json.set("helmetOn",    helmetData.helmetOn);
-  json.set("crashActive", engineLockedDown);
-  json.set("keyIn",       keyIn);
-  json.set("timestamp",   (int)millis());
+  if (engineLockedDown) status = "CRASH";
+  else if (engineLocked) status = "LOCKED";
+  else if (keyIn && helmetData.helmetOn) status = "DRIVING";
+  else status = "IDLE";
+
+  String json = "{";
+  json += "\"status\":\"" + status + "\",";
+  json += "\"helmetOn\":" + String(helmetData.helmetOn ? "true" : "false") + ",";
+  json += "\"crashActive\":" + String(engineLockedDown ? "true" : "false") + ",";
+  json += "\"keyIn\":" + String(keyIn ? "true" : "false") + ",";
+  json += "\"timestamp\":" + String(millis());
 
   if (gps.location.isValid()) {
-    json.set("lat", gps.location.lat());
-    json.set("lng", gps.location.lng());
+    json += ",\"lat\":" + String(gps.location.lat(), 6);
+    json += ",\"lng\":" + String(gps.location.lng(), 6);
+  }
+  json += "}";
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+
+  http.begin(client, firebaseBaseUrl + ".json");
+  http.addHeader("Content-Type", "application/json");
+  int code = http.PATCH(json);
+
+  if (code > 0) {
+    Serial.printf("[Firebase] Updated: %s\n", status.c_str());
+  } else {
+    Serial.println("[Firebase] Error!");
   }
 
-  if (Firebase.updateNode(fbData, vehiclePath, json)) {
-    Serial.printf(
-      "[Firebase] ✅ status=%-8s helmet=%s crash=%d key=%s gps=%s\n",
-      status.c_str(),
-      helmetData.helmetOn ? "ON " : "OFF",
-      engineLockedDown,
-      keyIn ? "IN " : "OUT",
-      gps.location.isValid() ? "OK" : "--"
-    );
-  } else {
-    Serial.printf("[Firebase] ❌ %s\n", fbData.errorReason().c_str());
-  }
+  http.end();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Firebase: Poll pendingCommand (replaces old /unlock and /lock web handlers)
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────── COMMAND POLL ─────────────────
 void pollFirebaseCommands() {
-  // ── Remote Lock/Unlock from Driver App ──
-  String cmdPath = vehiclePath + "/pendingCommand";
-  if (Firebase.getString(fbData, cmdPath)) {
-    String cmd = fbData.stringData();
-    cmd.trim();
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
 
-    if (cmd == "lock" && !engineLocked) {
+  // ── Remote Lock/Unlock ──
+  String url = firebaseBaseUrl + "/pendingCommand.json";
+  http.begin(client, url);
+  int code = http.GET();
+
+  if (code == 200) {
+    String payload = http.getString();
+    payload.replace("\"", "");
+    payload.trim();
+
+    if (payload == "lock") {
       engineLocked = true;
-      Serial.println("[Command] 🔒 Remote LOCK received from app.");
-      Firebase.setString(fbData, cmdPath, "");   // Clear after processing
-    } else if (cmd == "unlock" && engineLocked) {
+      Serial.println("🔒 LOCKED");
+      
+      http.end();
+      http.begin(client, url);
+      http.addHeader("Content-Type", "application/json");
+      http.PUT("null");
+      http.end();
+
+      bool keyIn = (digitalRead(keyPin) == LOW);
+      pushToFirebase(keyIn);
+    } 
+    else if (payload == "unlock") {
       engineLocked = false;
-      Serial.println("[Command] 🔓 Remote UNLOCK received from app.");
-      Firebase.setString(fbData, cmdPath, "");
+      Serial.println("🔓 UNLOCKED");
+
+      http.end();
+      http.begin(client, url);
+      http.addHeader("Content-Type", "application/json");
+      http.PUT("null");
+      http.end();
+
+      bool keyIn = (digitalRead(keyPin) == LOW);
+      pushToFirebase(keyIn);
     }
   }
+  http.end();
 
-  // ── Crash Acknowledgement from Family App ──
-  // When family clicks "Driver is OK", Firebase sets crashActive=false
+  // ── Crash Acknowledgement ──
   if (engineLockedDown) {
-    String crashPath = vehiclePath + "/crashActive";
-    if (Firebase.getBool(fbData, crashPath)) {
-      if (!fbData.boolData()) {
+    String crashUrl = firebaseBaseUrl + "/crashActive.json";
+    http.begin(client, crashUrl);
+    int crashCode = http.GET();
+    if (crashCode == 200) {
+      String crashPayload = http.getString();
+      crashPayload.trim();
+      if (crashPayload == "false") {
         engineLockedDown = false;
         crashAcknowledged = true; // Block re-trigger until helmet is reset
-        Serial.println("[Crash] ✅ Acknowledged by app. Resuming normal mode.");
+        Serial.println("[Crash] ✅ Acknowledged. Resuming...");
       }
     }
+    http.end();
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────── SETUP ─────────────────
 void setup() {
   Serial.begin(115200);
-  delay(500);
-  Serial.println("\n=== Vehicle Unit Starting ===");
 
-  // Pins — your original
-  pinMode(keyPin,   INPUT_PULLUP);
+  pinMode(keyPin, INPUT_PULLUP);
   pinMode(motorIn1, OUTPUT);
   pinMode(motorIn2, OUTPUT);
-  digitalWrite(motorIn1, LOW);
-  digitalWrite(motorIn2, LOW);
 
-  // GPS UART2
   gpsSerial.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX);
-  Serial.println("[GPS] UART2 started.");
-
-  // SIM800L UART1 — your original
   simSerial.begin(9600, SERIAL_8N1, SIM_RX, SIM_TX);
-  Serial.println("[SIM800L] UART1 started.");
 
-  // ── WiFi: AP_STA mode (required so ESP-NOW works alongside WiFi) ──
-  // AP_STA: the STA connects to your home router (for Firebase)
-  //         the internal channel becomes shared with ESP-NOW
   WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP("SmartVehicle_Config", "12345678", 0, 1);  
-  // Channel 0 = auto-select; softAP is hidden (ssid_hidden=1, not used externally)
-
-  Serial.println("[WiFi] Connecting to router...");
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  int retry = 0;
-  while (WiFi.status() != WL_CONNECTED && retry < 20) {
-    delay(500);
+
+  Serial.print("Connecting WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(300);
     Serial.print(".");
-    retry++;
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\n[WiFi] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
-    Serial.printf("[WiFi] Channel: %d  ← Set ESPNOW_WIFI_CHANNEL to this in helmet_esp.ino\n",
-                  WiFi.channel());
-    Serial.printf("[WiFi] MAC: %s\n", WiFi.macAddress().c_str());
-  } else {
-    Serial.println("\n[WiFi] FAILED to connect! Firebase will not work.");
-    Serial.println("       Check WIFI_SSID and WIFI_PASSWORD.");
-  }
+  Serial.println("\nConnected!");
 
-  // ── Firebase ──
-  fbConfig.host = FIREBASE_HOST;
-  fbConfig.signer.tokens.legacy_token = FIREBASE_AUTH;
-  Firebase.begin(&fbConfig, &fbAuth);
-  Firebase.reconnectWiFi(true);
-  fbData.setResponseSize(4096);
-  Serial.println("[Firebase] Initialized.");
-
-  // ── ESP-NOW ──
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("[ESP-NOW] Init FAILED!");
-  } else {
+  if (esp_now_init() == ESP_OK) {
     esp_now_register_recv_cb(OnDataRecv);
-    Serial.println("[ESP-NOW] Ready. Waiting for Helmet data...");
+    Serial.println("[ESP-NOW] Ready");
+  } else {
+    Serial.println("[ESP-NOW] Failed!");
   }
-
-  Serial.println("\n=== Vehicle Unit Online ===\n");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────── LOOP ─────────────────
 void loop() {
-  // Feed GPS continuously
-  while (gpsSerial.available() > 0) gps.encode(gpsSerial.read());
+  while (gpsSerial.available()) gps.encode(gpsSerial.read());
 
   unsigned long now = millis();
 
-  // ── Engine control at 5Hz (your original 200ms interval) ──
-  if (now - lastCheck >= 200) {
+  // Fast engine control
+  if (now - lastCheck >= 50) {
     lastCheck = now;
-    bool isKeyIn = (digitalRead(keyPin) == LOW);  // your original logic
 
-    // ── Engine Run Logic (your original condition) ──
-    bool shouldRun = isKeyIn && !engineLocked && helmetData.helmetOn && !engineLockedDown;
+    bool keyIn = (digitalRead(keyPin) == LOW);
+    bool run = keyIn && !engineLocked && helmetData.helmetOn && !engineLockedDown;
 
-    if (shouldRun) {
-      digitalWrite(motorIn1, HIGH);
-      digitalWrite(motorIn2, LOW);
-    } else {
-      digitalWrite(motorIn1, LOW);
-      digitalWrite(motorIn2, LOW);
-    }
+    digitalWrite(motorIn1, run);
+    digitalWrite(motorIn2, LOW);
   }
 
-  // ── Push to Firebase every 2 seconds ──
-  if (now - lastFirebasePush >= 2000) {
+  // Fast Firebase update
+  if (now - lastFirebasePush >= 500) {
     lastFirebasePush = now;
-    bool isKeyIn = (digitalRead(keyPin) == LOW);
-    pushToFirebase(isKeyIn);
+    bool keyIn = (digitalRead(keyPin) == LOW);
+    pushToFirebase(keyIn);
   }
 
-  // ── Poll Firebase for remote commands every 1 second ──
-  if (now - lastCommandPoll >= 1000) {
+  // Fast command response
+  if (now - lastCommandPoll >= 200) {
     lastCommandPoll = now;
     if (WiFi.status() == WL_CONNECTED) {
       pollFirebaseCommands();
